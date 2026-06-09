@@ -206,6 +206,54 @@ otherwise have the right to pass it on as an open-source patch.
 
 **NOTE:** You can also run this in one step by running: `make install run`
 
+### Testing CheckpointSchedule Triggers
+
+`test/test_schedule_triggers.bats` contains end-to-end tests for every
+`CheckpointSchedule` trigger type. Run them after `make install` and `make
+deploy` have put the operator in the cluster.
+
+**Prerequisites**
+
+* A running cluster with the operator deployed (`make install && make deploy IMG=...`)
+* `bats` installed (`sudo apt-get install -y bats` or `brew install bats-core`)
+* For the resource threshold trigger: metrics-server must be running and
+  returning data (`kubectl top pod` should work)
+
+**Run each trigger individually**
+
+```sh
+# Periodic checkpoints — checks that status.lastCheckpointTime is set
+bats test/test_schedule_triggers.bats --filter "interval trigger"
+
+# On-demand checkpoints via pod annotation
+bats test/test_schedule_triggers.bats --filter "annotation trigger"
+
+# Resource usage threshold (requires metrics-server)
+bats test/test_schedule_triggers.bats --filter "resource threshold trigger"
+
+# Pod disruption events (cordons the node, uncordons after)
+bats test/test_schedule_triggers.bats --filter "kubernetes events trigger"
+```
+
+**Run all four triggers at once**
+
+```sh
+bats test/test_schedule_triggers.bats --filter "all four triggers combined"
+```
+
+**Run the full suite**
+
+```sh
+bats test/test_schedule_triggers.bats
+```
+
+After each test you can verify real checkpoint archives were created on the
+node:
+
+```sh
+docker exec -it <kind-node-name> ls /var/lib/kubelet/checkpoints/
+```
+
 ### Modifying the API Definitions
 
 If you are editing the API definitions, generate the manifests such as CRs or
