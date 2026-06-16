@@ -495,7 +495,26 @@ func categorizeCheckpoints(log logr.Logger, checkpointFiles []string) map[string
 
 func handleWriteFinished(ctx context.Context, event fsnotify.Event) {
 	log := log.FromContext(ctx)
-	details, err := getCheckpointArchiveInformation(log, event.Name)
+
+	// The debounce timer may fire before CRI-O finishes writing the archive.
+	// Retry with backoff so we don't permanently miss newly created checkpoints.
+	const (
+		maxRetries = 3
+		retryDelay = 2 * time.Second
+	)
+
+	var details *checkpointDetails
+	var err error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		details, err = getCheckpointArchiveInformation(log, event.Name)
+		if err == nil {
+			break
+		}
+		if attempt < maxRetries {
+			log.V(1).Info("archive not ready, retrying", "path", event.Name, "attempt", attempt, "err", err)
+			time.Sleep(retryDelay)
+		}
+	}
 	if err != nil {
 		log.Error(err, "runGarbageCollector():getCheckpointArchiveInformation()")
 		return
@@ -559,7 +578,10 @@ func handleCheckpointsForLevel(log logr.Logger, details *checkpointDetails, leve
 	for _, archive := range checkpointArchives {
 		archiveDetails, err := getCheckpointArchiveInformation(log, archive)
 		if err != nil {
-			log.Error(err, "failed to get archive details", "archive", archive)
+			// Permanently unreadable archives (e.g. missing annotation) are skipped
+			// without an ERROR — logging at ERROR on every policy cycle is noisy and
+			// not actionable. Use -v=1 to surface these.
+			log.V(1).Info("skipping unreadable archive", "archive", archive, "err", err)
 			continue
 		}
 
