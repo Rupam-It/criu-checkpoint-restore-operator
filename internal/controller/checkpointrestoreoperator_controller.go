@@ -62,6 +62,11 @@ const (
 	BySize
 )
 
+// errAnnotationEmpty is returned when io.kubernetes.cri-o.Labels is absent from
+// spec.dump — either the archive is mid-write or permanently broken. Callers use
+// errors.Is to distinguish this from genuine I/O or tar failures.
+var errAnnotationEmpty = errors.New("io.kubernetes.cri-o.Labels annotation is empty")
+
 var (
 	GarbageCollector           garbageCollector
 	policyMutex                sync.RWMutex
@@ -335,7 +340,7 @@ func getCheckpointArchiveInformation(log logr.Logger, checkpointPath string) (*c
 
 	rawLabels := dumpSpec.Annotations["io.kubernetes.cri-o.Labels"]
 	if rawLabels == "" {
-		return nil, fmt.Errorf("failed to read %q: annotation is empty, archive may still be written", "io.kubernetes.cri-o.Labels")
+		return nil, fmt.Errorf("failed to read %q: %w", "io.kubernetes.cri-o.Labels", errAnnotationEmpty)
 	}
 	if err := json.Unmarshal([]byte(rawLabels), &labels); err != nil {
 		return nil, fmt.Errorf("failed to read %q: %w", "io.kubernetes.cri-o.Labels", err)
@@ -516,7 +521,11 @@ func handleWriteFinished(ctx context.Context, event fsnotify.Event) {
 		}
 	}
 	if err != nil {
-		log.Error(err, "runGarbageCollector():getCheckpointArchiveInformation()")
+		if errors.Is(err, errAnnotationEmpty) {
+			log.V(1).Info("archive unreadable after retries, skipping", "path", event.Name, "attempts", maxRetries)
+		} else {
+			log.Error(err, "runGarbageCollector():getCheckpointArchiveInformation()")
+		}
 		return
 	}
 
@@ -578,10 +587,11 @@ func handleCheckpointsForLevel(log logr.Logger, details *checkpointDetails, leve
 	for _, archive := range checkpointArchives {
 		archiveDetails, err := getCheckpointArchiveInformation(log, archive)
 		if err != nil {
-			// Permanently unreadable archives (e.g. missing annotation) are skipped
-			// without an ERROR — logging at ERROR on every policy cycle is noisy and
-			// not actionable. Use -v=1 to surface these.
-			log.V(1).Info("skipping unreadable archive", "archive", archive, "err", err)
+			if errors.Is(err, errAnnotationEmpty) {
+				log.V(1).Info("skipping archive: annotation empty", "archive", archive)
+			} else {
+				log.Error(err, "failed to get archive details", "archive", archive)
+			}
 			continue
 		}
 
