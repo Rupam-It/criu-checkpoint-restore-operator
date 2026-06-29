@@ -1,0 +1,227 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: podrestores.criu.org
+spec:
+  group: criu.org
+  names:
+    kind: PodRestore
+    listKind: PodRestoreList
+    plural: podrestores
+    singular: podrestore
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .spec.nodeName
+      name: Node
+      type: string
+    - jsonPath: .status.podName
+      name: Pod
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          PodRestore is the Schema for the podrestores API.
+          It drives the restore of one or more checkpointed containers as a new Pod
+          on the node where the checkpoint archives reside.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: PodRestoreSpec defines the desired state of PodRestore.
+            properties:
+              containers:
+                description: |-
+                  Containers lists the per-container restore sources. Every container
+                  that should be restored must have an entry here.
+                items:
+                  description: |-
+                    ContainerRestoreSpec maps a single container to its checkpoint archive and
+                    the original base image. Both fields are required for every container being
+                    restored.
+                  properties:
+                    baseImage:
+                      description: |-
+                        BaseImage is the original container image reference. The kubelet requires
+                        a valid image to pass its image-pull gate; the runtime then restores the
+                        container state from the checkpoint archive rather than starting fresh.
+                      type: string
+                    checkpointPath:
+                      description: |-
+                        CheckpointPath is the absolute path of the checkpoint .tar archive on
+                        NodeName (e.g. /var/lib/kubelet/checkpoints/checkpoint-pod_ns-ctr-ts.tar).
+                      type: string
+                    name:
+                      description: Name is the container name, matching the original
+                        pod's container name.
+                      type: string
+                  required:
+                  - baseImage
+                  - checkpointPath
+                  - name
+                  type: object
+                minItems: 1
+                type: array
+              nodeName:
+                description: |-
+                  NodeName is the node on which the checkpoint archives reside. The
+                  restored Pod is pinned to this node via spec.nodeName so that the
+                  runtime can access the local .tar files directly.
+                type: string
+              podTemplateOverrides:
+                description: |-
+                  PodTemplateOverrides allows customising labels, annotations, and other
+                  pod-level fields on the Pod that the operator creates.
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Annotations are merged into the restored Pod's metadata.annotations.
+                      Annotations set by the operator (e.g. restore.criu.org/checkpoint-path)
+                      take precedence over any values provided here.
+                    type: object
+                  labels:
+                    additionalProperties:
+                      type: string
+                    description: Labels are merged into the restored Pod's metadata.labels.
+                    type: object
+                  serviceAccountName:
+                    description: ServiceAccountName overrides the service account
+                      for the restored Pod.
+                    type: string
+                type: object
+              runtimeClassName:
+                description: |-
+                  RuntimeClassName pins the restored Pod to a specific RuntimeClass.
+                  Set this to a CRIU-aware handler (e.g. "criu-restore") when using the
+                  RuntimeClass restore path so the correct OCI runtime wrapper is invoked.
+                  When omitted the cluster default is used.
+                type: string
+            required:
+            - containers
+            - nodeName
+            type: object
+          status:
+            description: PodRestoreStatus defines the observed state of PodRestore.
+            properties:
+              completionTime:
+                description: |-
+                  CompletionTime is when the Pod reached Running state or the restore
+                  was marked Failed.
+                format: date-time
+                type: string
+              conditions:
+                description: |-
+                  Conditions represent the latest available observations of the restore
+                  state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              message:
+                description: Message holds the most recent human-readable error or
+                  status detail.
+                type: string
+              observedGeneration:
+                description: |-
+                  ObservedGeneration is the most recent spec generation the controller
+                  has reconciled.
+                format: int64
+                type: integer
+              phase:
+                description: Phase is the current high-level state of the restore
+                  operation.
+                type: string
+              podName:
+                description: PodName is the name of the Pod created and owned by this
+                  PodRestore.
+                type: string
+              startTime:
+                description: StartTime is when the operator first processed this PodRestore.
+                format: date-time
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
